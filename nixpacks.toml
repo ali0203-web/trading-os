@@ -1,6 +1,5 @@
-[providers]
-# Disable Caddy - we're using our own Node.js server
-caddy = false
+# Use only Node.js and npm, disable Caddy
+providers = ["nodejs", "npm"]
 
 [build]
 cmds = ["npm ci", "npm run build"]
