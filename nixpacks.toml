@@ -1,0 +1,6 @@
+# Disable Caddy reverse proxy and use only Node.js
+[build]
+cmds = ["npm ci", "npm run build"]
+
+[start]
+cmd = "node server.js"
