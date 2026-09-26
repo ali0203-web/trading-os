@@ -1,5 +1,11 @@
 .vercel
 .env*
+node_modules/
+.next/
+dist/
+build/
+.git/
+*.log
 
 # Arqaam Capital API credentials - use Vercel environment variables
 VITE_ARQAM_*
