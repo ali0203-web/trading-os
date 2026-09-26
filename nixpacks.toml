@@ -1,5 +1,5 @@
 # Use only Node.js and npm, disable Caddy
-providers = ["nodejs", "npm"]
+providers = ["node"]
 
 [build]
 cmds = ["npm ci", "npm run build"]
