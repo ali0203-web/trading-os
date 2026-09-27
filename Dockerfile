@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:18-slim
 
 WORKDIR /app
 
@@ -17,4 +17,3 @@ RUN test -f /app/agents/order-execution-agent/index.js || (echo "ERROR: agents/o
 
 # Start application
 CMD ["node", "index.js"]
-# Rebuild trigger: Sun Sep 27 07:24:39 +04 2026
