@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS job_dlq (
 -- 9. AGENT_HEALTH TABLE - Monitor agent status and uptime
 CREATE TABLE IF NOT EXISTS agent_health (
   id SERIAL PRIMARY KEY,
-  agent_name VARCHAR(100) NOT NULL,
+  agent_name VARCHAR(100) NOT NULL UNIQUE,
   status VARCHAR(50) NOT NULL, -- HEALTHY, DEGRADED, OFFLINE
   last_heartbeat TIMESTAMP NOT NULL,
   processed_jobs INT DEFAULT 0,
