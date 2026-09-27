@@ -1,5 +1,0 @@
-[build]
-builder = "dockerfile"
-
-[variables]
-RAILWAY_CUSTOM_START_CMD = "node index.js"
