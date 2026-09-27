@@ -17,10 +17,10 @@ CREATE TABLE IF NOT EXISTS orders (
   expires_at TIMESTAMP,
   retry_count INT DEFAULT 0,
   error_message TEXT,
-  INDEX idx_symbol (symbol),
-  INDEX idx_status (status),
-  INDEX idx_broker (broker),
-  INDEX idx_created_at (created_at)
+
+
+
+
 );
 
 -- 2. POSITIONS TABLE - Current holdings across all brokers
@@ -35,8 +35,8 @@ CREATE TABLE IF NOT EXISTS positions (
   realized_pnl DECIMAL(18, 8),
   last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(symbol, broker),
-  INDEX idx_symbol (symbol),
-  INDEX idx_broker (broker)
+
+
 );
 
 -- 3. REBALANCING_RULES TABLE - Target allocations and thresholds
@@ -50,8 +50,8 @@ CREATE TABLE IF NOT EXISTS rebalancing_rules (
   enabled BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_symbol (symbol),
-  INDEX idx_enabled (enabled)
+
+
 );
 
 -- 4. EXECUTIONS TABLE - Trade history and confirmations
@@ -67,10 +67,10 @@ CREATE TABLE IF NOT EXISTS executions (
   broker VARCHAR(50) NOT NULL,
   execution_id VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_order_id (order_id),
-  INDEX idx_symbol (symbol),
-  INDEX idx_executed_at (executed_at),
-  INDEX idx_broker (broker)
+
+
+
+
 );
 
 -- 5. PORTFOLIO_SNAPSHOTS TABLE - Daily portfolio state
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS portfolio_snapshots (
   cumulative_pnl DECIMAL(18, 8),
   return_percentage DECIMAL(8, 4),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_snapshot_date (snapshot_date)
+
 );
 
 -- 6. ERROR_LOG TABLE - Failed orders and recovery attempts
@@ -99,10 +99,10 @@ CREATE TABLE IF NOT EXISTS error_log (
   retry_count INT DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_order_id (order_id),
-  INDEX idx_error_type (error_type),
-  INDEX idx_created_at (created_at),
-  INDEX idx_recovery_attempted (recovery_attempted)
+
+
+
+
 );
 
 -- 7. JOB_QUEUE TABLE - Order routing and job management
@@ -118,11 +118,11 @@ CREATE TABLE IF NOT EXISTS job_queue (
   completed_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_status (status),
-  INDEX idx_job_type (job_type),
-  INDEX idx_priority (priority),
-  INDEX idx_scheduled_for (scheduled_for),
-  INDEX idx_created_at (created_at)
+
+
+
+
+
 );
 
 -- 8. JOB_DLQ TABLE - Dead-letter queue for failed jobs
@@ -136,9 +136,9 @@ CREATE TABLE IF NOT EXISTS job_dlq (
   max_retries INT DEFAULT 5,
   last_retry_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_job_id (job_id),
-  INDEX idx_retry_count (retry_count),
-  INDEX idx_created_at (created_at)
+
+
+
 );
 
 -- 9. AGENT_HEALTH TABLE - Monitor agent status and uptime
@@ -151,9 +151,9 @@ CREATE TABLE IF NOT EXISTS agent_health (
   failed_jobs INT DEFAULT 0,
   avg_latency_ms DECIMAL(10, 2),
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_agent_name (agent_name),
-  INDEX idx_status (status),
-  INDEX idx_last_heartbeat (last_heartbeat)
+
+
+
 );
 
 -- 10. MARKET_DATA TABLE - Real-time price feeds
@@ -167,9 +167,9 @@ CREATE TABLE IF NOT EXISTS market_data (
   volume DECIMAL(18, 2),
   timestamp TIMESTAMP NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_symbol (symbol),
-  INDEX idx_broker (broker),
-  INDEX idx_timestamp (timestamp)
+
+
+
 );
 
 -- Create indexes for common queries
@@ -177,3 +177,26 @@ CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_a
 CREATE INDEX IF NOT EXISTS idx_positions_value ON positions(symbol, quantity);
 CREATE INDEX IF NOT EXISTS idx_executions_date_range ON executions(executed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_job_queue_pending ON job_queue(status, scheduled_for) WHERE status IN ('PENDING', 'PROCESSING');
+
+-- Create indexes (PostgreSQL syntax)
+CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders(symbol);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_broker ON orders(broker);
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol);
+CREATE INDEX IF NOT EXISTS idx_positions_broker ON positions(broker);
+
+CREATE INDEX IF NOT EXISTS idx_executions_symbol ON executions(symbol);
+CREATE INDEX IF NOT EXISTS idx_executions_created_at ON executions(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_market_data_symbol ON market_data(symbol);
+CREATE INDEX IF NOT EXISTS idx_market_data_timestamp ON market_data(timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status);
+CREATE INDEX IF NOT EXISTS idx_job_queue_created_at ON job_queue(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_error_log_created_at ON error_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_health_agent_name ON agent_health(agent_name);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_created_at ON portfolio_snapshots(created_at);
