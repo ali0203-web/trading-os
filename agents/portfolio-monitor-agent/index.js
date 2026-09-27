@@ -1,9 +1,10 @@
+const path = require('path');
 // AGENT 3: Portfolio Monitor & Rebalancer
 // Monitors portfolio drift from target allocation
 // Triggers rebalancing orders when drift > threshold
 // Runs on schedule (every 60 seconds)
 
-const db = require('../lib/database');
+const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 

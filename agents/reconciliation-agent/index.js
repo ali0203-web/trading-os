@@ -1,10 +1,11 @@
+const path = require('path');
 // AGENT 6: Daily Reconciliation & Reporting
 // Reconciles orders vs executions
 // Calculates daily P&L
 // Generates performance reports
 // Scheduled daily at market close (17:00 UTC)
 
-const db = require('../lib/database');
+const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
 require('dotenv').config();
 
 let isRunning = false;

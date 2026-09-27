@@ -2,8 +2,9 @@
 // Executes pending orders from PostgreSQL queue via Binance/IB APIs
 // Runs continuously, checking queue every ORDER_EXECUTION_INTERVAL ms
 
-const db = require('../lib/database');
-const BinanceClient = require('../lib/brokers/binance');
+const path = require('path');
+const db = require(path.join(__dirname, '../../lib/database'));
+const BinanceClient = require(path.join(__dirname, '../../lib/brokers/binance'));
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 

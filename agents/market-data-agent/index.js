@@ -1,9 +1,10 @@
+const path = require('path');
 // AGENT 2: Market Data Ingestion Agent
 // Streams live prices from Binance WebSocket and stores in PostgreSQL
 // Updates market_data table in real-time for all configured symbols
 
-const db = require('../lib/database');
-const BinanceClient = require('../lib/brokers/binance');
+const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
+const BinanceClient = require(path.join(__dirname, '..', '..', 'lib', 'brokers', 'binance'));
 require('dotenv').config();
 
 const MARKET_DATA_INTERVAL = parseInt(process.env.MARKET_DATA_INTERVAL) || 10000;

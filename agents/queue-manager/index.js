@@ -1,10 +1,11 @@
+const path = require('path');
 // AGENT 9: Queue Manager
 // Manages PostgreSQL job queue and dead-letter queue
 // Handles job lifecycle and cleanup
 // Market-hour aware scheduling
 // Replaces SQS + EventBridge ($4/month)
 
-const db = require('../lib/database');
+const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
 require('dotenv').config();
 
 const QUEUE_CLEANUP_INTERVAL = 300000; // 5 minutes

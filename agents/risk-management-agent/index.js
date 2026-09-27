@@ -1,8 +1,9 @@
+const path = require('path');
 // AGENT 4: Risk Management & Compliance
 // Enforces position limits, leverage checks, trading hour restrictions
 // Runs before every order execution
 
-const db = require('../lib/database');
+const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
 require('dotenv').config();
 
 const MAX_POSITION_SIZE = parseFloat(process.env.MAX_POSITION_SIZE) || 0.5;

@@ -1,10 +1,11 @@
+const path = require('path');
 // AGENT 8: Monitoring & Logging
 // Logs all agent activity to PostgreSQL
 // Generates performance metrics
 // Alerts on system anomalies
 // Replaces CloudWatch ($10/month)
 
-const db = require('../lib/database');
+const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
 require('dotenv').config();
 
 const MONITORING_INTERVAL = 60000; // 1 minute

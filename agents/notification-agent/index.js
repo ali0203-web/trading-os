@@ -1,9 +1,10 @@
+const path = require('path');
 // AGENT 7: Notification Engine
 // Aggregates trade alerts and sends to Discord Bot
 // Batches alerts to reduce noise
 // Replaces Slack Pro ($8/month)
 
-const db = require('../lib/database');
+const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
 const axios = require('axios');
 require('dotenv').config();
 

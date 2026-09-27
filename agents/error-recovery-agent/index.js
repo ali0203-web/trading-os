@@ -1,10 +1,11 @@
+const path = require('path');
 // AGENT 5: Error Recovery & Circuit Breaker
 // Monitors dead-letter queue for failed orders
 // Retries with exponential backoff
 // Pauses trading if broker APIs down
 
-const db = require('../lib/database');
-const BinanceClient = require('../lib/brokers/binance');
+const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
+const BinanceClient = require(path.join(__dirname, '..', '..', 'lib', 'brokers', 'binance'));
 require('dotenv').config();
 
 const ERROR_RECOVERY_INTERVAL = parseInt(process.env.ERROR_RECOVERY_INTERVAL) || 300000;
