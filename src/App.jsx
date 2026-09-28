@@ -7,6 +7,7 @@ import Analytics from './pages/Analytics'
 import RiskManagement from './pages/RiskManagement'
 import Alerts from './pages/Alerts'
 import News from './pages/News'
+import RFQCampaign from './pages/RFQCampaign'
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard')
@@ -52,11 +53,18 @@ export default function App() {
           >
             Alerts
           </button>
-          <button 
+          <button
             className={`nav-btn ${currentPage === 'news' ? 'active' : ''}`}
             onClick={() => setCurrentPage('news')}
           >
             News
+          </button>
+          <button
+            className={`nav-btn ${currentPage === 'rfq' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('rfq')}
+            style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+          >
+            📊 RFQ
           </button>
         </div>
         <div className="nav-right">
@@ -73,6 +81,7 @@ export default function App() {
         {currentPage === 'risk' && <RiskManagement />}
         {currentPage === 'alerts' && <Alerts />}
         {currentPage === 'news' && <News />}
+        {currentPage === 'rfq' && <RFQCampaign />}
       </div>
     </div>
   )

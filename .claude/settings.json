@@ -1,0 +1,77 @@
+{
+  "mcp_servers": {
+    "arqam_capital": {
+      "command": "node",
+      "args": ["mcp-servers/arqam-capital-mcp/server.js"],
+      "env": {
+        "ARQAM_API_KEY": "${ARQAM_API_KEY}",
+        "ARQAM_API_SECRET": "${ARQAM_API_SECRET}",
+        "ARQAM_ACCOUNT_ID": "${ARQAM_ACCOUNT_ID}",
+        "ARQAM_EMAIL": "${ARQAM_EMAIL}",
+        "ARQAM_PASSWORD": "${ARQAM_PASSWORD}"
+      }
+    },
+    "supabase": {
+      "command": "node",
+      "args": ["mcp-servers/supabase-mcp/server.js"],
+      "env": {
+        "SUPABASE_URL": "${SUPABASE_URL}",
+        "SUPABASE_ANON_KEY": "${SUPABASE_ANON_KEY}",
+        "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}"
+      }
+    },
+    "market_data": {
+      "command": "node",
+      "args": ["mcp-servers/market-data-mcp/server.js"],
+      "env": {
+        "FREELLLMAPI_KEY": "${FREELLLMAPI_KEY}"
+      }
+    }
+  },
+  "trading": {
+    "account_id": "${ARQAM_ACCOUNT_ID}",
+    "starting_capital": 100.00,
+    "currency": "USD",
+    "market": "DFM",
+    "timezone": "Asia/Dubai",
+    "max_risk_per_trade": 0.02,
+    "max_trades_per_day": 5,
+    "daily_loss_limit": 5.00,
+    "weekly_loss_limit": 15.00,
+    "confidence_threshold_block": 0.55,
+    "confidence_threshold_alert": 0.75,
+    "confidence_threshold_auto_execute": 0.75,
+    "brain_path": ".claude/brain",
+    "approved_symbols": ["ENBD", "ADIB", "Emaar", "DP World", "ADIB:DFM", "ENBD:DFM"],
+    "market_hours": {
+      "open": "10:00",
+      "close": "15:00",
+      "timezone": "Asia/Dubai"
+    }
+  },
+  "paper_trading": true,
+  "paper_trading_mode": {
+    "enabled": true,
+    "simulated_slippage": 0.001,
+    "simulated_spread": 0.002,
+    "reset_daily": true,
+    "starting_balance": 100.00
+  },
+  "hooks_enabled": true,
+  "logging": {
+    "level": "info",
+    "file": "logs/trading.log",
+    "supabase_logging": true
+  },
+  "notifications": {
+    "slack_enabled": false,
+    "slack_webhook": "${SLACK_WEBHOOK_URL}",
+    "email_enabled": false,
+    "email_to": "${USER_EMAIL}"
+  },
+  "database": {
+    "type": "supabase",
+    "auto_sync": true,
+    "sync_interval_seconds": 60
+  }
+}

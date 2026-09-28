@@ -1,0 +1,254 @@
+{
+  "hooks": [
+    {
+      "name": "pre_trade_validation",
+      "trigger": "before_tool_use",
+      "tool_pattern": "place_order",
+      "description": "Validate all trade requirements before order placement",
+      "checks": [
+        {
+          "name": "market_hours_check",
+          "rule": "if current_time not between 10:00-15:00 Dubai time, BLOCK",
+          "severity": "CRITICAL",
+          "action": "BLOCK"
+        },
+        {
+          "name": "symbol_approval_check",
+          "rule": "if symbol not in [ENBD, ADIB, Emaar, DP World], BLOCK",
+          "severity": "CRITICAL",
+          "action": "BLOCK"
+        },
+        {
+          "name": "confidence_check",
+          "rule": "if confidence < 0.55, BLOCK",
+          "severity": "CRITICAL",
+          "action": "BLOCK"
+        },
+        {
+          "name": "confidence_alert_check",
+          "rule": "if confidence between 0.55-0.75, ALERT user (5 min timeout)",
+          "severity": "MEDIUM",
+          "action": "ALERT",
+          "timeout_seconds": 300
+        },
+        {
+          "name": "confidence_auto_execute_check",
+          "rule": "if confidence >= 0.75, AUTO_EXECUTE",
+          "severity": "LOW",
+          "action": "AUTO_EXECUTE"
+        },
+        {
+          "name": "risk_per_trade_check",
+          "rule": "if risk_amount > 2.00 USD, BLOCK",
+          "severity": "CRITICAL",
+          "action": "BLOCK"
+        },
+        {
+          "name": "daily_loss_limit_check",
+          "rule": "if (today_loss + risk_amount) > 5.00 USD, BLOCK",
+          "severity": "CRITICAL",
+          "action": "BLOCK"
+        },
+        {
+          "name": "weekly_loss_limit_check",
+          "rule": "if (week_loss + risk_amount) > 15.00 USD, BLOCK and ALERT",
+          "severity": "CRITICAL",
+          "action": "BLOCK"
+        },
+        {
+          "name": "daily_trade_limit_check",
+          "rule": "if trades_today >= 5, BLOCK",
+          "severity": "MEDIUM",
+          "action": "BLOCK"
+        },
+        {
+          "name": "position_size_check",
+          "rule": "validate position size matches Kelly Criterion calculation",
+          "severity": "CRITICAL",
+          "action": "BLOCK"
+        }
+      ]
+    },
+    {
+      "name": "post_trade_logging",
+      "trigger": "after_tool_use",
+      "tool_pattern": "place_order",
+      "description": "Log all executed trades to Supabase and notify system",
+      "actions": [
+        {
+          "name": "log_to_supabase",
+          "action": "INSERT into trades table:",
+          "fields": [
+            "symbol",
+            "side",
+            "entry_price",
+            "entry_time",
+            "quantity",
+            "confidence_score",
+            "signal_type",
+            "stop_loss",
+            "take_profit",
+            "risk_amount",
+            "status"
+          ]
+        },
+        {
+          "name": "update_daily_stats",
+          "action": "UPDATE daily_performance table",
+          "fields": [
+            "trades_executed",
+            "total_capital_deployed",
+            "date"
+          ]
+        },
+        {
+          "name": "slack_notification",
+          "action": "if slack_enabled, send trade alert",
+          "message": "Trade executed: {symbol} {side} {quantity} shares @ {entry_price}, confidence: {confidence}%"
+        }
+      ]
+    },
+    {
+      "name": "daily_risk_reset",
+      "trigger": "daily_at_market_close",
+      "time": "15:05",
+      "timezone": "Asia/Dubai",
+      "description": "Daily risk tracking and reset",
+      "actions": [
+        {
+          "name": "close_all_positions",
+          "rule": "At market close (15:05 Dubai), close ALL open positions",
+          "order_type": "market",
+          "reason": "Day-trading only, no overnight positions"
+        },
+        {
+          "name": "calculate_daily_pnl",
+          "action": "Calculate end-of-day P&L",
+          "log_to": "daily_performance table"
+        },
+        {
+          "name": "check_daily_loss_limit",
+          "rule": "if daily_loss >= 5.00 USD, prevent trading tomorrow",
+          "action": "LOG alert for user review"
+        },
+        {
+          "name": "reset_trade_counter",
+          "action": "Reset daily trade count to 0 for next day"
+        }
+      ]
+    },
+    {
+      "name": "weekly_strategy_review",
+      "trigger": "weekly_on_friday",
+      "time": "15:05",
+      "timezone": "Asia/Dubai",
+      "description": "Weekly performance analysis and strategy adjustment",
+      "actions": [
+        {
+          "name": "calculate_win_rate",
+          "action": "Calculate week_wins / week_total_trades",
+          "log_to": "weekly_performance table"
+        },
+        {
+          "name": "calculate_profit_factor",
+          "action": "Calculate total_wins_$ / total_losses_$",
+          "log_to": "weekly_performance table"
+        },
+        {
+          "name": "check_max_drawdown",
+          "action": "Calculate max peak-to-trough loss",
+          "rule": "if > 5.00 USD, alert user immediately"
+        },
+        {
+          "name": "check_weekly_loss_limit",
+          "rule": "if weekly_loss >= 15.00 USD, block all trading next week",
+          "action": "REQUIRE user confirmation to resume"
+        },
+        {
+          "name": "update_position_sizes",
+          "rule": "Based on win rate, adjust next week's position sizes",
+          "adjustments": {
+            "win_rate_gt_60": "increase position size 25%",
+            "win_rate_50_60": "keep position size normal",
+            "win_rate_lt_50": "decrease position size 40%"
+          }
+        },
+        {
+          "name": "signal_accuracy_tracking",
+          "action": "Calculate win rate by signal type (RSI, MACD, Volume, MeanRev)",
+          "log_to": "signal_accuracy table"
+        }
+      ]
+    },
+    {
+      "name": "halt_monitoring",
+      "trigger": "pre_market_check",
+      "time": "09:30",
+      "timezone": "Asia/Dubai",
+      "description": "Check for trading halts before market open",
+      "actions": [
+        {
+          "name": "fetch_halt_list",
+          "source": "DFM exchange halt list",
+          "action": "Check if any approved symbols [ENBD, ADIB, Emaar, DP World] are halted"
+        },
+        {
+          "name": "block_halted_symbols",
+          "rule": "if symbol in halt list, BLOCK trades for that symbol today",
+          "action": "UPDATE approved_symbols to exclude halted tickers"
+        }
+      ]
+    },
+    {
+      "name": "emergency_stop_loss",
+      "trigger": "continuous_monitoring",
+      "description": "Automatic stop-loss enforcement on all open positions",
+      "checks": [
+        {
+          "name": "check_position_stops",
+          "rule": "Every 10 seconds, check if any position hit stop loss price",
+          "action": "if yes, SELL immediately at market price"
+        },
+        {
+          "name": "check_position_targets",
+          "rule": "Every 10 seconds, check if any position hit take profit price",
+          "action": "if yes, SELL immediately at market price"
+        },
+        {
+          "name": "daily_loss_limit_emergency",
+          "rule": "if (today_loss + current_unrealized_loss) > 5.00 USD",
+          "action": "CLOSE ALL positions immediately, STOP trading"
+        }
+      ]
+    }
+  ],
+  "audit_trail": {
+    "enabled": true,
+    "log_every_check": true,
+    "log_every_block": true,
+    "log_every_alert": true,
+    "log_every_execution": true,
+    "storage": "supabase"
+  },
+  "safety_levels": {
+    "paranoid": {
+      "description": "Maximum safety, minimum risk",
+      "auto_execute": false,
+      "alert_all": true,
+      "user_approval_all": true
+    },
+    "conservative": {
+      "description": "Balance safety and efficiency",
+      "auto_execute": true,
+      "confidence_threshold": 0.75,
+      "alert_confidence": 0.55
+    },
+    "aggressive": {
+      "description": "Maximize execution speed",
+      "auto_execute": true,
+      "confidence_threshold": 0.60,
+      "alert_confidence": 0.50
+    }
+  },
+  "current_safety_level": "conservative"
+}
