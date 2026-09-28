@@ -1,213 +1,156 @@
-const path = require('path');
-// AGENT 8: Monitoring & Logging
-// Logs all agent activity to PostgreSQL
-// Generates performance metrics
-// Alerts on system anomalies
-// Replaces CloudWatch ($10/month)
+const { Pool } = require('pg');
+const axios = require('axios');
+const { v4: uuidv4 } = require('uuid');
 
-const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
-require('dotenv').config();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const MONITORING_INTERVAL = 60000; // 1 minute
-let isRunning = false;
-
-// Get agent health status
-async function getAgentStatus() {
-  try {
-    const agents = await db.getRows(
-      `SELECT agent_name, status, last_heartbeat, processed_jobs, failed_jobs, avg_latency_ms
-       FROM agent_health
-       ORDER BY agent_name ASC`
-    );
-
-    return agents;
-  } catch (error) {
-    console.error('❌ Failed to get agent status:', error.message);
-    return [];
+class MonitoringAgent {
+  constructor() {
+    this.name = 'Monitoring Agent';
+    this.startTime = Date.now();
   }
-}
 
-// Check for anomalies
-async function checkAnomalies() {
-  try {
-    const anomalies = [];
-
-    // Check 1: No orders processed in last hour
-    const recentOrders = await db.getRow(
-      `SELECT COUNT(*) as count FROM orders WHERE created_at > NOW() - INTERVAL '1 hour'`
-    );
-
-    if (recentOrders.count === 0) {
-      anomalies.push('⚠️  No orders processed in last hour');
-    }
-
-    // Check 2: High error rate
-    const errorRate = await db.getRow(
-      `SELECT COUNT(*) as count FROM error_log WHERE created_at > NOW() - INTERVAL '1 hour'`
-    );
-
-    if (errorRate.count > 10) {
-      anomalies.push(`⚠️  High error rate: ${errorRate.count} errors in last hour`);
-    }
-
-    // Check 3: Agent health
-    const agentHealth = await db.getRows(
-      `SELECT agent_name, status, last_heartbeat FROM agent_health
-       WHERE status != 'HEALTHY' OR last_heartbeat < NOW() - INTERVAL '5 minutes'`
-    );
-
-    agentHealth.forEach(agent => {
-      anomalies.push(`⚠️  ${agent.agent_name} status: ${agent.status}`);
-    });
-
-    // Check 4: Queue buildup
-    const queueSize = await db.getRow(
-      `SELECT COUNT(*) as count FROM job_queue WHERE status = 'PENDING'`
-    );
-
-    if (queueSize.count > 50) {
-      anomalies.push(`⚠️  Large job queue: ${queueSize.count} pending jobs`);
-    }
-
-    return anomalies;
-  } catch (error) {
-    console.error('❌ Anomaly check failed:', error.message);
-    return [];
+  async start() {
+    console.log(`📊 ${this.name} started`);
+    await this.registerHealth();
+    
+    setInterval(() => this.checkAgentHealth(), 5 * 60 * 1000);
+    setInterval(() => this.generateMetrics(), 60 * 1000);
+    setInterval(() => this.checkAnomalies(), 10 * 60 * 1000);
+    
+    await this.checkAgentHealth();
+    await this.generateMetrics();
   }
-}
 
-// Generate performance metrics
-async function generateMetrics() {
-  try {
-    const today = new Date().toISOString().split('T')[0];
-
-    // Get execution metrics
-    const executions = await db.getRow(
-      `SELECT COUNT(*) as total, COUNT(DISTINCT symbol) as symbols,
-              SUM(quantity) as volume, AVG(executed_price) as avg_price
-       FROM executions WHERE DATE(executed_at) = $1`,
-      [today]
-    );
-
-    // Get portfolio metrics
-    const portfolio = await db.getRow(
-      `SELECT total_value, daily_pnl, return_percentage FROM portfolio_snapshots
-       WHERE snapshot_date = $1`,
-      [today]
-    );
-
-    // Get system metrics
-    const agents = await getAgentStatus();
-    const healthyAgents = agents.filter(a => a.status === 'HEALTHY').length;
-
-    return {
-      date: today,
-      executions: executions.total || 0,
-      symbols: executions.symbols || 0,
-      volume: executions.volume || 0,
-      avgPrice: executions.avg_price || 0,
-      portfolio: portfolio || { total_value: 0, daily_pnl: 0, return_percentage: 0 },
-      healthyAgents: `${healthyAgents}/${agents.length}`,
-    };
-  } catch (error) {
-    console.error('❌ Metrics generation failed:', error.message);
-    return null;
+  async registerHealth() {
+    try {
+      await pool.query(
+        `INSERT INTO agent_health (agent_name, status, last_heartbeat) 
+         VALUES ($1, $2, NOW()) ON CONFLICT (agent_name) DO UPDATE 
+         SET status = $2, last_heartbeat = NOW()`,
+        [this.name, 'HEALTHY']
+      );
+    } catch (error) {
+      console.error('❌ Health registration failed:', error.message);
+    }
   }
-}
 
-// Print system status
-async function printSystemStatus() {
-  try {
-    console.log('\n' + '='.repeat(60));
-    console.log('🖥️  SYSTEM MONITORING REPORT');
-    console.log('='.repeat(60));
+  async checkAgentHealth() {
+    try {
+      const result = await pool.query(`
+        SELECT agent_name, status, last_heartbeat,
+               EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as seconds_since_heartbeat
+        FROM agent_health
+        ORDER BY last_heartbeat DESC
+      `);
 
-    // Agent status
-    const agents = await getAgentStatus();
-    console.log('\n📊 AGENT STATUS');
-    agents.forEach(agent => {
-      const icon = agent.status === 'HEALTHY' ? '✅' : '⚠️';
-      const lastBeat = new Date(agent.last_heartbeat);
-      const secondsAgo = Math.floor((Date.now() - lastBeat) / 1000);
-      console.log(`  ${icon} ${agent.agent_name.padEnd(25)} | ${agent.status.padEnd(10)} | ${secondsAgo}s ago`);
-    });
+      const agents = result.rows;
+      const unhealthy = agents.filter(a => a.seconds_since_heartbeat > 300);
 
-    // Anomalies
-    const anomalies = await checkAnomalies();
-    if (anomalies.length > 0) {
-      console.log('\n⚠️  ANOMALIES DETECTED');
-      anomalies.forEach(anomaly => {
-        console.log(`  ${anomaly}`);
+      console.log(`✅ Health check: ${agents.length} agents, ${unhealthy.length} unhealthy`);
+
+      for (const agent of agents) {
+        await pool.query(
+          `INSERT INTO agent_metrics (agent_name, metric_type, metric_value) 
+           VALUES ($1, $2, $3)`,
+          [agent.agent_name, 'uptime_seconds', agent.seconds_since_heartbeat]
+        );
+      }
+
+      if (unhealthy.length > 0) {
+        await this.sendHealthAlert(unhealthy);
+      }
+
+      await this.updateHealth('HEALTHY', `Checked ${agents.length} agents`);
+    } catch (error) {
+      console.error('❌ Health check failed:', error.message);
+      await this.updateHealth('ERROR', error.message);
+    }
+  }
+
+  async generateMetrics() {
+    try {
+      const orders = (await pool.query(`SELECT COUNT(*) as count FROM orders WHERE created_at > NOW() - INTERVAL '1 hour'`)).rows[0];
+      const executions = (await pool.query(`SELECT COUNT(*) as count FROM executions WHERE created_at > NOW() - INTERVAL '1 hour'`)).rows[0];
+      const errors = (await pool.query(`SELECT COUNT(*) as count FROM error_log WHERE created_at > NOW() - INTERVAL '1 hour'`)).rows[0];
+      
+      const metrics = {
+        timestamp: new Date().toISOString(),
+        orders_per_hour: orders.count,
+        executions_per_hour: executions.count,
+        errors_per_hour: errors.count,
+        uptime_hours: (Date.now() - this.startTime) / (1000 * 60 * 60)
+      };
+
+      await pool.query(
+        `INSERT INTO performance_metrics (metric_data) VALUES ($1)`,
+        [JSON.stringify(metrics)]
+      );
+
+      console.log(`📈 Metrics: ${orders.count} orders/h, ${executions.count} exec/h, ${errors.count} errors/h`);
+    } catch (error) {
+      console.error('❌ Metrics generation failed:', error.message);
+    }
+  }
+
+  async checkAnomalies() {
+    try {
+      const orders = (await pool.query(`SELECT COUNT(*) as count FROM orders WHERE created_at > NOW() - INTERVAL '1 hour'`)).rows[0];
+      
+      if (orders.count === 0) {
+        const webhook = process.env.DISCORD_WEBHOOK;
+        if (webhook) {
+          await axios.post(webhook, {
+            embeds: [{
+              title: '⚠️ Anomaly Detected',
+              description: 'No orders executed in the last hour',
+              color: 0xff0000
+            }]
+          });
+        }
+      }
+
+      console.log(`✅ Anomaly check complete`);
+    } catch (error) {
+      console.error('❌ Anomaly check failed:', error.message);
+    }
+  }
+
+  async sendHealthAlert(unhealthy) {
+    try {
+      const webhook = process.env.DISCORD_WEBHOOK;
+      if (!webhook) return;
+
+      const description = unhealthy.map(a => `${a.agent_name}: ${a.status}`).join('\n');
+      await axios.post(webhook, {
+        embeds: [{
+          title: '⚠️ Unhealthy Agents Detected',
+          description,
+          color: 0xff0000
+        }]
       });
-    } else {
-      console.log('\n✅ No anomalies detected');
+    } catch (error) {
+      console.error('Health alert failed:', error.message);
     }
+  }
 
-    // Performance metrics
-    const metrics = await generateMetrics();
-    if (metrics) {
-      console.log('\n📈 PERFORMANCE METRICS');
-      console.log(`  Executions:         ${metrics.executions}`);
-      console.log(`  Unique Symbols:     ${metrics.symbols}`);
-      console.log(`  Total Volume:       ${metrics.volume}`);
-      console.log(`  Portfolio Value:    $${metrics.portfolio.total_value.toFixed(2)}`);
-      console.log(`  Daily P&L:          $${metrics.portfolio.daily_pnl.toFixed(2)}`);
-      console.log(`  Return %:           ${metrics.portfolio.return_percentage.toFixed(2)}%`);
-      console.log(`  Healthy Agents:     ${metrics.healthyAgents}`);
+  async updateHealth(status, message) {
+    try {
+      await pool.query(
+        `UPDATE agent_health SET status = $1, last_message = $2, last_heartbeat = NOW() WHERE agent_name = $3`,
+        [status, message, this.name]
+      );
+    } catch (error) {
+      console.error('Health update failed:', error.message);
     }
-
-    console.log('\n' + '='.repeat(60) + '\n');
-  } catch (error) {
-    console.error('❌ Status report failed:', error.message);
   }
 }
 
-// Cleanup old logs
-async function cleanupOldLogs() {
-  try {
-    // Delete logs older than 30 days
-    const result = await db.query(
-      `DELETE FROM error_log WHERE created_at < NOW() - INTERVAL '30 days'`
-    );
+const agent = new MonitoringAgent();
+agent.start().catch(console.error);
 
-    if (result.rowCount > 0) {
-      console.log(`🧹 Cleaned up ${result.rowCount} old error logs`);
-    }
-  } catch (error) {
-    console.error('❌ Cleanup failed:', error.message);
-  }
-}
-
-// Start agent
-async function start() {
-  if (isRunning) return;
-  isRunning = true;
-
-  console.log('🚀 Monitoring Agent started');
-
-  // Print status every minute
-  setInterval(printSystemStatus, MONITORING_INTERVAL);
-
-  // Cleanup every hour
-  setInterval(cleanupOldLogs, 3600000);
-
-  // Initial status
-  setTimeout(printSystemStatus, 2000);
-
-  // Graceful shutdown
-  process.on('SIGTERM', () => {
-    console.log('🛑 Shutting down Monitoring Agent...');
-    isRunning = false;
-    process.exit(0);
-  });
-}
-
-// Run if executed directly
-if (require.main === module) {
-  start().catch(error => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
-}
-
-module.exports = { start, printSystemStatus };
+process.on('SIGTERM', () => {
+  console.log('🛑 Monitoring Agent shutting down');
+  pool.end();
+  process.exit(0);
+});

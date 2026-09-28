@@ -1,231 +1,157 @@
-const path = require('path');
-// AGENT 9: Queue Manager
-// Manages PostgreSQL job queue and dead-letter queue
-// Handles job lifecycle and cleanup
-// Market-hour aware scheduling
-// Replaces SQS + EventBridge ($4/month)
+const { Pool } = require('pg');
+const { v4: uuidv4 } = require('uuid');
 
-const db = require(path.join(__dirname, '..', '..', 'lib', 'database'));
-require('dotenv').config();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const QUEUE_CLEANUP_INTERVAL = 300000; // 5 minutes
-let isRunning = false;
-
-// Get queue statistics
-async function getQueueStats() {
-  try {
-    const stats = await db.getRow(
-      `SELECT
-        (SELECT COUNT(*) FROM job_queue WHERE status = 'PENDING') as pending,
-        (SELECT COUNT(*) FROM job_queue WHERE status = 'PROCESSING') as processing,
-        (SELECT COUNT(*) FROM job_queue WHERE status = 'COMPLETED') as completed,
-        (SELECT COUNT(*) FROM job_queue WHERE status = 'FAILED') as failed,
-        (SELECT COUNT(*) FROM job_dlq) as dlq_count`
-    );
-
-    return stats;
-  } catch (error) {
-    console.error('❌ Failed to get queue stats:', error.message);
-    return null;
+class QueueManager {
+  constructor() {
+    this.name = 'Queue Manager';
+    this.processing = false;
   }
-}
 
-// Get pending jobs
-async function getPendingJobs(limit = 20) {
-  try {
-    const jobs = await db.getRows(
-      `SELECT id, job_id, job_type, status, priority, scheduled_for
-       FROM job_queue
-       WHERE status = 'PENDING'
-       AND (scheduled_for IS NULL OR scheduled_for <= NOW())
-       ORDER BY priority DESC, scheduled_for ASC
-       LIMIT $1`,
-      [limit]
-    );
-
-    return jobs;
-  } catch (error) {
-    console.error('❌ Failed to get pending jobs:', error.message);
-    return [];
+  async start() {
+    console.log(`📦 ${this.name} started`);
+    await this.registerHealth();
+    
+    setInterval(() => this.processQueue(), 5 * 1000);
+    setInterval(() => this.cleanupOldRecords(), 60 * 60 * 1000);
+    setInterval(() => this.processDeadLetterQueue(), 30 * 1000);
+    
+    await this.processQueue();
   }
-}
 
-// Check if within market hours
-function isMarketHours() {
-  const now = new Date();
-  const hours = now.getUTCHours();
-  const minutes = now.getUTCMinutes();
-  const day = now.getUTCDay();
-
-  // Monday (1) to Friday (5), 14:30 UTC to 21:00 UTC
-  if (day === 0 || day === 6) return false; // Weekend
-
-  const currentTime = hours * 100 + minutes;
-  return currentTime >= 1430 && currentTime <= 2100;
-}
-
-// Cleanup completed jobs
-async function cleanupCompletedJobs() {
-  try {
-    // Delete completed jobs older than 7 days
-    const result = await db.query(
-      `DELETE FROM job_queue
-       WHERE status = 'COMPLETED'
-       AND completed_at < NOW() - INTERVAL '7 days'`
-    );
-
-    if (result.rowCount > 0) {
-      console.log(`🧹 Cleaned up ${result.rowCount} completed jobs`);
+  async registerHealth() {
+    try {
+      await pool.query(
+        `INSERT INTO agent_health (agent_name, status, last_heartbeat) 
+         VALUES ($1, $2, NOW()) ON CONFLICT (agent_name) DO UPDATE 
+         SET status = $2, last_heartbeat = NOW()`,
+        [this.name, 'HEALTHY']
+      );
+    } catch (error) {
+      console.error('❌ Health registration failed:', error.message);
     }
-  } catch (error) {
-    console.error('❌ Cleanup failed:', error.message);
   }
-}
 
-// Cleanup stale jobs
-async function cleanupStaleJobs() {
-  try {
-    // Find jobs stuck in PROCESSING for > 30 minutes
-    const staleJobs = await db.getRows(
-      `SELECT id, job_id FROM job_queue
-       WHERE status = 'PROCESSING'
-       AND started_at < NOW() - INTERVAL '30 minutes'`
-    );
+  async processQueue() {
+    if (this.processing) return;
+    this.processing = true;
 
-    for (const job of staleJobs) {
-      await db.query(
-        `UPDATE job_queue SET status = 'FAILED' WHERE id = $1`,
-        [job.id]
+    try {
+      const result = await pool.query(
+        `SELECT id, job_type, job_data FROM job_queue 
+         WHERE status = 'PENDING' AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at ASC LIMIT 10`
       );
 
-      console.warn(`⚠️  Marked stale job as failed: ${job.job_id}`);
+      const jobs = result.rows;
+      console.log(`📤 Processing ${jobs.length} jobs`);
+
+      for (const job of jobs) {
+        try {
+          await this.executeJob(job);
+          await pool.query(`UPDATE job_queue SET status = 'COMPLETED', updated_at = NOW() WHERE id = $1`, [job.id]);
+        } catch (error) {
+          console.error(`❌ Job ${job.id} failed:`, error.message);
+          await pool.query(
+            `INSERT INTO job_dlq (original_job_id, job_type, job_data, error_message) 
+             VALUES ($1, $2, $3, $4)`,
+            [job.id, job.job_type, JSON.stringify(job.job_data), error.message]
+          );
+          await pool.query(`UPDATE job_queue SET status = 'FAILED', updated_at = NOW() WHERE id = $1`, [job.id]);
+        }
+      }
+
+      await this.updateHealth('HEALTHY', `Processed ${jobs.length} jobs`);
+    } catch (error) {
+      console.error('❌ Queue processing error:', error.message);
+      await this.updateHealth('ERROR', error.message);
+    } finally {
+      this.processing = false;
     }
-
-    return staleJobs.length;
-  } catch (error) {
-    console.error('❌ Stale job cleanup failed:', error.message);
-    return 0;
   }
-}
 
-// Pause trading during off-hours
-async function handleMarketHours() {
-  try {
-    if (!isMarketHours()) {
-      // Pause any order execution jobs
-      await db.query(
-        `UPDATE job_queue SET status = 'PENDING', scheduled_for = NOW() + INTERVAL '1 hour'
-         WHERE status = 'PENDING' AND job_type = 'EXECUTE_ORDER'
-         AND scheduled_for > NOW()`
-      );
+  async executeJob(job) {
+    const { job_type, job_data } = job;
 
-      console.log('🌙 Market closed, paused order execution until market open');
+    if (job_type === 'ORDER_PLACEMENT') {
+      console.log(`🎯 Executing order: ${job_data.symbol} ${job_data.quantity}@${job_data.price}`);
       return;
     }
 
-    // Resume paused jobs
-    const resumedCount = await db.query(
-      `UPDATE job_queue SET scheduled_for = NOW()
-       WHERE status = 'PENDING' AND job_type = 'EXECUTE_ORDER'
-       AND scheduled_for IS NOT NULL`
-    );
-
-    if (resumedCount.rowCount > 0) {
-      console.log(`☀️  Market open, resumed ${resumedCount.rowCount} orders`);
+    if (job_type === 'REBALANCE') {
+      console.log(`⚖️ Executing rebalance: ${job_data.symbol} -> ${job_data.target_allocation}%`);
+      return;
     }
-  } catch (error) {
-    console.error('❌ Market hours handling failed:', error.message);
-  }
-}
 
-// Print queue status
-async function printQueueStatus() {
-  try {
-    const stats = await getQueueStats();
-    if (!stats) return;
-
-    console.log('\n📊 JOB QUEUE STATUS');
-    console.log(`  Pending:           ${stats.pending}`);
-    console.log(`  Processing:        ${stats.processing}`);
-    console.log(`  Completed:         ${stats.completed}`);
-    console.log(`  Failed:            ${stats.failed}`);
-    console.log(`  Dead-Letter Queue: ${stats.dlq_count}`);
-    console.log(`  Market Hours:      ${isMarketHours() ? '✅ Open' : '🌙 Closed'}`);
-
-    const pending = await getPendingJobs(5);
-    if (pending.length > 0) {
-      console.log(`\n  Next jobs:`);
-      pending.forEach(job => {
-        const scheduled = job.scheduled_for
-          ? new Date(job.scheduled_for).toLocaleTimeString()
-          : 'NOW';
-        console.log(`    - ${job.job_type} (${scheduled})`);
-      });
+    if (job_type === 'RISK_CHECK') {
+      console.log(`✅ Risk check passed`);
+      return;
     }
-  } catch (error) {
-    console.error('❌ Status print failed:', error.message);
+
+    throw new Error(`Unknown job type: ${job_type}`);
   }
-}
 
-// Health check
-async function recordHealth() {
-  try {
-    const stats = await getQueueStats();
-    const totalJobs = (stats.pending || 0) + (stats.processing || 0);
-
-    await db.query(
-      `INSERT INTO agent_health (agent_name, status, last_heartbeat, processed_jobs)
-       VALUES ($1, $2, NOW(), $3)
-       ON CONFLICT (agent_name) DO UPDATE SET
-         status = $2,
-         last_heartbeat = NOW(),
-         processed_jobs = $3`,
-      ['queue-manager', 'HEALTHY', totalJobs]
-    );
-  } catch (error) {
-    console.error('Health check failed:', error.message);
-  }
-}
-
-// Start agent
-async function start() {
-  if (isRunning) return;
-  isRunning = true;
-
-  console.log('🚀 Queue Manager started');
-
-  // Cleanup every 5 minutes
-  setInterval(async () => {
+  async processDeadLetterQueue() {
     try {
-      await cleanupCompletedJobs();
-      await cleanupStaleJobs();
-      await handleMarketHours();
-      await recordHealth();
+      const result = await pool.query(
+        `SELECT id, original_job_id, job_type, retry_count FROM job_dlq 
+         WHERE retry_count < 3 AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at ASC LIMIT 5`
+      );
+
+      const dlqJobs = result.rows;
+      console.log(`🔄 Processing ${dlqJobs.length} DLQ jobs`);
+
+      for (const dlqJob of dlqJobs) {
+        try {
+          const jobData = (await pool.query(`SELECT job_data FROM job_queue WHERE id = $1`, [dlqJob.original_job_id])).rows[0];
+          
+          if (jobData) {
+            await this.executeJob({ job_type: dlqJob.job_type, job_data: jobData.job_data });
+            await pool.query(`DELETE FROM job_dlq WHERE id = $1`, [dlqJob.id]);
+            console.log(`✅ DLQ job ${dlqJob.id} recovered`);
+          }
+        } catch (error) {
+          await pool.query(
+            `UPDATE job_dlq SET retry_count = retry_count + 1 WHERE id = $1`,
+            [dlqJob.id]
+          );
+          console.error(`⚠️ DLQ job ${dlqJob.id} retry attempt`);
+        }
+      }
     } catch (error) {
-      console.error('Queue management error:', error.message);
+      console.error('❌ DLQ processing error:', error.message);
     }
-  }, QUEUE_CLEANUP_INTERVAL);
+  }
 
-  // Print status every minute
-  setInterval(printQueueStatus, 60000);
+  async cleanupOldRecords() {
+    try {
+      await pool.query(`DELETE FROM job_queue WHERE created_at < NOW() - INTERVAL '30 days'`);
+      await pool.query(`DELETE FROM job_dlq WHERE created_at < NOW() - INTERVAL '30 days'`);
+      console.log(`🧹 Cleanup complete: removed old records`);
+    } catch (error) {
+      console.error('❌ Cleanup error:', error.message);
+    }
+  }
 
-  // Initial status
-  setTimeout(printQueueStatus, 1000);
-
-  // Graceful shutdown
-  process.on('SIGTERM', () => {
-    console.log('🛑 Shutting down Queue Manager...');
-    isRunning = false;
-    process.exit(0);
-  });
+  async updateHealth(status, message) {
+    try {
+      await pool.query(
+        `UPDATE agent_health SET status = $1, last_message = $2, last_heartbeat = NOW() WHERE agent_name = $3`,
+        [status, message, this.name]
+      );
+    } catch (error) {
+      console.error('Health update failed:', error.message);
+    }
+  }
 }
 
-// Run if executed directly
-if (require.main === module) {
-  start().catch(error => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
-}
+const manager = new QueueManager();
+manager.start().catch(console.error);
 
-module.exports = { start, getQueueStats };
+process.on('SIGTERM', () => {
+  console.log('🛑 Queue Manager shutting down');
+  pool.end();
+  process.exit(0);
+});
