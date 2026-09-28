@@ -1,46 +1,35 @@
 {
-  "name": "autonomous-trading-agents",
+  "name": "trading-agents",
   "version": "1.0.0",
-  "description": "24/7 autonomous trading agent system on Railway",
+  "description": "Production-ready autonomous trading agents on Railway",
   "main": "index.js",
+  "engines": {
+    "node": "18.x"
+  },
   "scripts": {
     "start": "node index.js",
     "order-execution": "node agents/order-execution-agent/index.js",
-    "portfolio-monitor": "node agents/portfolio-monitor-agent/index.js",
     "market-data": "node agents/market-data-agent/index.js",
+    "portfolio-monitor": "node agents/portfolio-monitor-agent/index.js",
     "risk-management": "node agents/risk-management-agent/index.js",
     "error-recovery": "node agents/error-recovery-agent/index.js",
-    "reconciliation": "node agents/reconciliation-agent/index.js",
-    "notification": "node agents/notification-agent/index.js",
-    "monitoring": "node agents/monitoring-agent/index.js",
-    "queue-manager": "node agents/queue-manager/index.js",
-    "dev": "node --watch index.js"
+    "test": "node -c agents/order-execution-agent/index.js && node -c agents/market-data-agent/index.js && node -c agents/portfolio-monitor-agent/index.js && node -c agents/risk-management-agent/index.js && node -c agents/error-recovery-agent/index.js"
   },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "pg": "^8.11.2",
+    "uuid": "^9.0.1",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {},
   "keywords": [
     "trading",
     "agents",
     "autonomous",
-    "railway",
     "binance",
-    "interactive-brokers"
+    "portfolio"
   ],
-  "author": "Trading Agent System",
-  "license": "MIT",
-  "dependencies": {
-    "pg": "^8.11.3",
-    "dotenv": "^16.3.1",
-    "axios": "^1.6.2",
-    "ws": "^8.15.0",
-    "discord.js": "^14.14.1",
-    "node-schedule": "^2.1.1",
-    "winston": "^3.11.0",
-    "uuid": "^9.0.1",
-    "decimal.js": "^10.4.3"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "author": "",
+  "license": "MIT"
 }
