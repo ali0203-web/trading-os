@@ -8,8 +8,8 @@ class ArqamAPI {
   constructor() {
     // Use local proxy to avoid CORS issues
     this.baseURL = '/api/arqam-proxy'
-    this.apiKey = import.meta.env.VITE_ARQAM_API_KEY
-    this.accountId = import.meta.env.VITE_ARQAM_ACCOUNT_ID
+    this.apiKey = process.env.NEXT_PUBLIC_ARQAM_API_KEY
+    this.accountId = process.env.NEXT_PUBLIC_ARQAM_ACCOUNT_ID
     this.headers = {
       'Content-Type': 'application/json',
     }
